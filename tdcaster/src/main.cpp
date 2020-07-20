@@ -1,7 +1,8 @@
+#define _USE_MATH_DEFINES
+#include <math.h>
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
 
-#include <cmath>
 #include "world.h"
 
 class TdCasterApplication : public olc::PixelGameEngine
@@ -16,9 +17,12 @@ class TdCasterApplication : public olc::PixelGameEngine
     float cx, cy, ca;
     float fov, vfov;
     int viewMode;
+    float turnSpeed, moveSpeed;
     bool OnUserCreate() override
     {
         viewMode = 0;
+        moveSpeed = 2;
+        turnSpeed = 3;
         cx = 1;
         cy = 1;
         ca = 0;
@@ -50,7 +54,11 @@ class TdCasterApplication : public olc::PixelGameEngine
         world.raycast(cx, cy, cos(ca), sin(ca), value, distSqr, intercept, lastDir);
         return true;
     }
-    void drawView()
+    inline olc::Pixel getColor(int value, float distSqr)
+    {
+        return olc::Pixel(std::min(255, (int)(512 / distSqr)), 0, 0);
+    }
+    void drawViewFisheye()
     {
         Clear(olc::Pixel(255, 255, 255));
         float fovd2 = fov / 2;
@@ -72,18 +80,28 @@ class TdCasterApplication : public olc::PixelGameEngine
             float distSqr;
             float intercept;
             int lastDir;
-            if(i == width / 2)
-            {
-                std::cout << "intercept: ";
-            }
             world.raycast(cx, cy, vx, vy, value, distSqr, intercept, lastDir);
-            if(i == width / 2)
-            {
-                std::cout << intercept << "\n";
-            }
             float dist = sqrt(distSqr);
             float size = atan(1 / dist) * height / vfov;
-            DrawLine(i, heightd2 - size, i, heightd2 + size, olc::Pixel(std::min(255, (int)(512 / dist)), 0, 0));
+            DrawLine(i, heightd2 - size, i, heightd2 + size, getColor(value, distSqr));
+        }
+    }
+    void drawView()
+    {
+        Clear(olc::Pixel(255, 255, 255));
+        float fovd2 = fov / 2;
+        float beginDir = ca - fovd2;
+        int width = ScreenWidth(), height = ScreenHeight();
+        int heightd2 = height / 2;
+        for(int i = 0; i < width; i++)
+        {
+            float dir = beginDir + (fov * i / width);
+            int value, lastDir;
+            float distSqr, intercept;
+            world.raycast(cx, cy, cos(dir), sin(dir), value, distSqr, intercept, lastDir);
+            float dist = sqrt(distSqr);
+            float size = atan(1 / dist) * height / vfov;
+            DrawLine(i, heightd2 - size, i, heightd2 + size, getColor(value, distSqr));
         }
     }
     void drawTopDown()
@@ -115,7 +133,6 @@ class TdCasterApplication : public olc::PixelGameEngine
         world.raycast(cx, cy, cos(ca), sin(ca), value, distSqr, intercept, lastDir);
         float dist = sqrt(distSqr);
         DrawLine(px, py, px + cos(ca) * dist * blockSize, py + sin(ca) * dist * blockSize, olc::Pixel(0, 0, 255));
-                std::cout << "intercept: " << intercept << "\n";
     }
     bool OnUserUpdate(float fElapsedTime) override
     {
@@ -130,16 +147,16 @@ class TdCasterApplication : public olc::PixelGameEngine
         DrawString(4, 4, "xya: " + std::to_string(cx) + ", " + std::to_string(cy) + ", " + std::to_string(ca), olc::BLUE);
         if(GetKey(olc::Key::LEFT).bHeld)
         {
-            ca -= 0.05;
+            ca -= turnSpeed * fElapsedTime;
         }
         if(GetKey(olc::Key::RIGHT).bHeld)
         {
-            ca += 0.05;
+            ca += turnSpeed * fElapsedTime;
         }
         if(GetKey(olc::Key::W).bHeld)
         {
-            cx += cos(ca) * 0.02;
-            cy += sin(ca) * 0.02;
+            cx += cos(ca) * moveSpeed * fElapsedTime;
+            cy += sin(ca) * moveSpeed * fElapsedTime;
         }
         if(GetKey(olc::Key::V).bPressed)
         {

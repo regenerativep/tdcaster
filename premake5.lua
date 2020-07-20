@@ -1,7 +1,7 @@
 workspace "tdcaster"
     architecture "x86_64"
     configurations { "debug", "release" }
-    platforms { "linux" }
+    platforms { "linux", "win64" }
     startproject "tdcaster"
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 srcdir = "%{prj.name}/src"
@@ -18,13 +18,6 @@ project "tdcaster"
         srcdir .. "/**.cpp",
         srcdir .. "/**.hpp"
     }
-    links {
-        "GL",
-        "pthread",
-        "png",
-        "stdc++fs",
-        "X11"
-    }
     filter "configurations:debug"
         defines { "DEBUG" }
         symbols "On"
@@ -32,3 +25,20 @@ project "tdcaster"
     filter "configurations:release"
         defines { "NDEBUG" }
         optimize "Speed"
+    filter "platforms:linux"
+        links {
+            "GL",
+            "pthread",
+            "png",
+            "stdc++fs",
+            "X11"
+        }
+    filter "platforms:win64"
+        links {
+            "user32",
+            "gdi32",
+            "opengl32",
+            "gdiplus",
+            "Shlwapi",
+            "stdc++fs"
+        }
