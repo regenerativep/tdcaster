@@ -5,6 +5,7 @@ workspace "tdcaster"
     startproject "tdcaster"
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 srcdir = "%{prj.name}/src"
+bindir = "bin/"..outputdir.."/%{prj.name}/"
 project "tdcaster"
     location "tdcaster"
     kind "ConsoleApp"
@@ -16,8 +17,17 @@ project "tdcaster"
     {
         srcdir .. "/**.h",
         srcdir .. "/**.cpp",
-        srcdir .. "/**.hpp"
+        srcdir .. "/**.hpp",
+        srcdir .. "/resources/**.png"
     }
+    filter "files:**.png"
+        buildmessage "moving %{file.relpath}"
+        buildcommands {
+            "mkdir -p ../"..bindir.."/resources && cp %{file.relpath} ../"..bindir.."/resources/"
+        }
+        buildoutputs {
+            "%{cfg.objdir}/%{file.name}"
+        }
     filter "configurations:debug"
         defines { "DEBUG" }
         symbols "On"

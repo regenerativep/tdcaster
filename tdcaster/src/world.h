@@ -144,5 +144,27 @@ class GameWorld
         float ndx = tx - x;
         float ndy = ty - y;
         distSqr = ndx * ndx + ndy * ndy;
+        
+        if(value == 2)
+        {
+            if(lastDir == 0)
+            {
+                dx *= -1;
+                xi = -xi;
+                xs = !xs;
+                idx = 1.0 / abs(dx);
+            }
+            else if(lastDir == 1)
+            {
+                dy *= -1;
+                yi = -yi;
+                ys = !ys;
+                idy = 1.0 / abs(dy);
+            }
+            float nDistSqr;
+            raycast(tx, ty, dx, dy, value, nDistSqr, intercept, lastDir);
+            distSqr = sqrt(nDistSqr) + sqrt(distSqr);
+            distSqr *= distSqr;
+        }
     }
 };
