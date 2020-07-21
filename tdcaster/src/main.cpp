@@ -23,7 +23,7 @@ class TdCasterApplication : public olc::PixelGameEngine
         this->path = path;
     }
     public:
-    GameWorld world;
+    tdcaster::GameWorld world;
     float cx, cy, ca;
     float fov, vfov;
     int viewMode;
@@ -42,14 +42,14 @@ class TdCasterApplication : public olc::PixelGameEngine
         ca = 0;
         fov = M_PI / 2;
         vfov = M_PI / 3;
-        world = GameWorld();
+        world = tdcaster::GameWorld();
         world.setMap(new int[16*16] {
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
             1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
-            1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
-            1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1,
-            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 1, 0, 0, 0, 0, 0, 6, 0, 0, 2, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
             1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1,
@@ -61,11 +61,6 @@ class TdCasterApplication : public olc::PixelGameEngine
             1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
         }, 16, 16);
-        int value;
-        float distSqr;
-        float intercept;
-        int lastDir;
-        world.raycast(cx, cy, cos(ca), sin(ca), value, distSqr, intercept, lastDir);
         return true;
     }
     void drawColumn(olc::Decal& image, int x, float intercept, float distSqr, olc::Pixel lightFunc(olc::Pixel, float))
@@ -74,13 +69,48 @@ class TdCasterApplication : public olc::PixelGameEngine
         float size = atan(0.5 / dist) * ScreenHeight() / vfov;
         int col = (int)(intercept * image.sprite->width);
         int heightd2 = ScreenHeight() / 2;
-        DrawPartialDecal(olc::vf2d(x, heightd2 - size), olc::vf2d(1, size * 2), wallDecal, olc::vf2d(col, 0), olc::vf2d(1, image.sprite->height));
-        // for(int i = 0; i < size * 2; i++)
-        // {
-        //     int row = (int)(i * image.height / (size * 2));
-        //     olc::Pixel pix = image.GetPixel(col, row);
-        //     Draw(x, heightd2 - size + i, lightFunc(pix, distSqr));
-        // }
+        DrawPartialDecal(olc::vf2d(x, heightd2 - size), olc::vf2d(1, size * 2), wallDecal, olc::vf2d(col, 0), olc::vf2d(1, image.sprite->height), lightFunc(olc::WHITE, distSqr));
+    }
+    void drawRaycast(tdcaster::RaycastCollision col, int x, float dist = 0)
+    {
+        float actualDist = col.getDist() + dist;
+        auto lightFunc = [](olc::Pixel pix, float distSqr) {
+            // return olc::Pixel(
+            //     std::min((int)(pix.r * (16.0 / distSqr)), (int)pix.r),
+            //     std::min((int)(pix.g * (16.0 / distSqr)), (int)pix.g),
+            //     std::min((int)(pix.b * (16.0 / distSqr)), (int)pix.b)
+            // );
+            return pix;
+        };
+        if((col.value & 1) != 0)
+        {
+            drawColumn(*wallDecal, x, col.intercept, actualDist * actualDist, lightFunc);
+        }
+        if((col.value & 2) != 0)
+        {
+            float rvx = col.dx, rvy = col.dy;
+            if(col.lastDir == 0)
+            {
+                rvx *= -1;
+            }
+            else if(col.lastDir == 1)
+            {
+                rvy *= -1;
+            }
+            drawRaycast(world.raycast(col.tx, col.ty, rvx, rvy, col.i), x, actualDist);
+        }
+        if((col.value & 4) != 0)
+        {
+            drawColumn(*wallDecal, x, col.intercept, actualDist * actualDist, [](olc::Pixel pix, float distSqr) {
+                return olc::Pixel(
+                    // std::min((int)(pix.r * (16.0 / distSqr)), (int)pix.r),
+                    // std::min((int)(pix.g * (16.0 / distSqr)), (int)pix.g),
+                    // std::min((int)(pix.b * (16.0 / distSqr)), (int)pix.b),
+                    pix.r, pix.g, pix.b,
+                    127
+                );
+            });
+        }
     }
     void drawView()
     {
@@ -89,23 +119,13 @@ class TdCasterApplication : public olc::PixelGameEngine
         float beginDir = ca - fovd2;
         int width = ScreenWidth(), height = ScreenHeight();
         int heightd2 = height / 2;
+        
         for(int i = 0; i < width; i++)
         {
             float dir = beginDir + (fov * i / width);
-            int value, lastDir;
-            float distSqr, intercept;
             float vx = cos(dir), vy = sin(dir);
-            world.raycast(cx, cy, vx, vy, value, distSqr, intercept, lastDir);
-            if(value == 1)
-            {
-                drawColumn(*wallDecal, i, intercept, distSqr, [](olc::Pixel pix, float distSqr) {
-                    return olc::Pixel(
-                        std::min((int)(pix.r * (4.0 / distSqr)), (int)pix.r),
-                        std::min((int)(pix.g * (4.0 / distSqr)), (int)pix.g),
-                        std::min((int)(pix.b * (4.0 / distSqr)), (int)pix.b)
-                    );
-                });
-            }
+            tdcaster::RaycastCollision col = world.raycast(cx, cy, vx, vy);
+            drawRaycast(col, i);
         }
     }
     void drawTopDown()
@@ -132,11 +152,8 @@ class TdCasterApplication : public olc::PixelGameEngine
         int px = (int)(cx * blockSize);
         int py = (int)(cy * blockSize);
         DrawRect(px - cameraRad, py - cameraRad, cameraRad * 2, cameraRad * 2, olc::Pixel(0, 0, 255));
-        //DrawLine(px, py, px + cos(ca) * 8, py + sin(ca) * 8, olc::Pixel(0, 0, 255));
-        int value, lastDir;
-        float distSqr, intercept;
-        world.raycast(cx, cy, cos(ca), sin(ca), value, distSqr, intercept, lastDir);
-        float dist = sqrt(distSqr);
+        tdcaster::RaycastCollision col = world.raycast(cx, cy, cos(ca), sin(ca));
+        float dist = sqrt(col.distSqr);
         DrawLine(px, py, px + cos(ca) * dist * blockSize, py + sin(ca) * dist * blockSize, olc::Pixel(0, 0, 255));
     }
     bool OnUserUpdate(float fElapsedTime) override
