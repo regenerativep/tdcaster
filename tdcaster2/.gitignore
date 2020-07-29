@@ -1,0 +1,5 @@
+bin/
+obj/
+Makefile
+.vscode/
+tdcaster/Makefile
