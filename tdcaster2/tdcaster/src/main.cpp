@@ -13,26 +13,38 @@
 
 namespace TdCaster
 {
-    void rotateVectorX(float* y, float* z, float c, float s)
+    inline void rotateVectorX(float* y, float* z, float c, float s)
     {
         double ny = (*y * c) - (*z * s);
         double nz = (*y * s) + (*z * c);
         *y = ny;
         *z = nz;
     }
-    void rotateVectorY(float* x, float* z, float c, float s)
+    inline void rotateVectorY(float* x, float* z, float c, float s)
     {
         float nx = (*x * c) + (*z * s);
         float nz = (*z * c) - (*x * s);
         *x = nx;
         *z = nz;
     }
-    void rotateVectorZ(float* x, float* y, float c, float s)
+    inline void rotateVectorZ(float* x, float* y, float c, float s)
     {
         float nx = (*x * c) + (*y * s);
         float ny = (*x * s) - (*y * c);
         *x = nx;
         *y = ny;
+    }
+    inline olc::Pixel lightEffect(olc::Pixel pix, float distSqr, float lightAmount = 8) {
+        // return olc::Pixel(
+        //     std::min((int)(pix.r * (lightAmount / distSqr)), (int)pix.r),
+        //     std::min((int)(pix.g * (lightAmount / distSqr)), (int)pix.g),
+        //     std::min((int)(pix.b * (lightAmount / distSqr)), (int)pix.b)
+        // );
+        return olc::Pixel(
+            std::min((int)(pix.r * (lightAmount / distSqr)), 255),
+            std::min((int)(pix.g * (lightAmount / distSqr)), 255),
+            std::min((int)(pix.b * (lightAmount / distSqr)), 255)
+        );
     }
     struct RaycastCollision
     {
@@ -131,12 +143,12 @@ namespace TdCaster
             pz = 0.5;
             pad = 0;
             pap = 0;
-            pfh = M_PI / 2;
-            pfv = M_PI / 3;
+            pfh = M_PI * (120.f / 180.f);
+            pfv = M_PI / 2;
             viewDistance = 16;
             return true;
         }
-        RaycastCollision raycast(float x, float y, float z, float dx, float dy, float dz, int passes = 0) {
+        inline RaycastCollision raycast(float x, float y, float z, float dx, float dy, float dz, int passes = 0) {
             int cx = std::floor(x);
             int cy = std::floor(y);
             int cz = std::floor(z);
@@ -318,7 +330,7 @@ namespace TdCaster
             float distSqr = ndx * ndx + ndy * ndy + ndz * ndz;
             return RaycastCollision(value, distSqr, xInt, yInt, tx, ty, tz, dx, dy, dz);
         }
-        void drawView()
+        inline void drawView()
         {
             float pc = cos(pap);
             float ps = sin(pap);
@@ -345,15 +357,16 @@ namespace TdCaster
                     olc::Pixel drawColor = olc::BLANK;
                     switch(res.value) {
                         case 1:
-                            drawColor = floorSprite->GetPixel(res.xInt * floorSprite->width, res.yInt * floorSprite->height);
+                            drawColor = getPixelFromImage(floorSprite, res.xInt, res.yInt);
                             break;
                         case 2:
-                            drawColor = ceilSprite->GetPixel(res.xInt * ceilSprite->width, res.yInt * ceilSprite->height);
+                            drawColor = getPixelFromImage(ceilSprite, res.xInt, res.yInt);
                             break;
                         case 3:
-                            drawColor = wallSprite->GetPixel(res.xInt * wallSprite->width, res.yInt * wallSprite->height);
+                            drawColor = getPixelFromImage(wallSprite, res.xInt, res.yInt);
                             break;
                     }
+                    drawColor = lightEffect(drawColor, res.distSqr, 1);
                     Draw(j, i, drawColor);
                     rVecX += cDiffX; rVecY += cDiffY; rVecZ += cDiffZ;
                 }
