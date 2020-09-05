@@ -13,6 +13,27 @@
 
 namespace TdCaster
 {
+    void rotateVectorX(float* y, float* z, float c, float s)
+    {
+        double ny = (*y * c) - (*z * s);
+        double nz = (*y * s) + (*z * c);
+        *y = ny;
+        *z = nz;
+    }
+    void rotateVectorY(float* x, float* z, float c, float s)
+    {
+        float nx = (*x * c) + (*z * s);
+        float nz = (*z * c) - (*x * s);
+        *x = nx;
+        *z = nz;
+    }
+    void rotateVectorZ(float* x, float* y, float c, float s)
+    {
+        float nx = (*x * c) + (*y * s);
+        float ny = (*x * s) - (*y * c);
+        *x = nx;
+        *y = ny;
+    }
     struct RaycastCollision
     {
         int value;
@@ -46,9 +67,15 @@ namespace TdCaster
         int* walls;
         int* floor;
         int width, height;
+        int viewWidth, viewHeight;
         int viewDistance;
         float px, py, pz, pad, pap, pfh, pfv;
         float turnSpeed, moveSpeed;
+        int viewMode;
+
+        olc::Sprite* wallSprite;
+        olc::Sprite* floorSprite;
+        olc::Sprite* ceilSprite;
         TdCasterApplication(std::string path)
         {
             sAppName = "TopDownCaster2";
@@ -56,13 +83,20 @@ namespace TdCaster
         }
         bool OnUserCreate() override
         {
+            std::string resourcePath = path + PATH_SLASH + "resources" + PATH_SLASH;
+            wallSprite = new olc::Sprite(resourcePath + "bricks.png");
+            ceilSprite = new olc::Sprite(resourcePath + "ceiling.png");
+            floorSprite = new olc::Sprite(resourcePath + "floor.png");
+
+            viewMode = 0;
+            viewWidth = ScreenWidth();//512;
+            viewHeight = ScreenHeight();//384;
             width = 8;
             height = 8;
             turnSpeed = 2;
             moveSpeed = 3;
             int totalCells = width * height;
             ceiling = new int[totalCells] {
-                1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1,
@@ -102,8 +136,7 @@ namespace TdCaster
             viewDistance = 16;
             return true;
         }
-        RaycastCollision raycast(float x, float y, float z, float dx, float dy, float dz, int passes = 0)
-        {
+        RaycastCollision raycast(float x, float y, float z, float dx, float dy, float dz, int passes = 0) {
             int cx = std::floor(x);
             int cy = std::floor(y);
             int cz = std::floor(z);
@@ -194,7 +227,7 @@ namespace TdCaster
                 {
                     //tnh
                     lastDir = 0;
-                    continue;
+                    // continue;
                 }
                 if(lastDir == 0)
                 {
@@ -245,6 +278,9 @@ namespace TdCaster
             {
                 yp -= yi;
             }
+            else if(lastDir == 2) {
+                zp -= zi;
+            }
             float tx = cx + xp;
             float ty = cy + yp;
             float tz = cz + zp;
@@ -254,6 +290,7 @@ namespace TdCaster
                 float xD = xp + xs - xf;
                 xInt = (dy / dx) * xD - yp + yf;
                 yInt = (dz / dx) * xD - zp + zf;
+                tx += xs;
                 ty += xInt;
                 tz += yInt;
             }
@@ -263,6 +300,7 @@ namespace TdCaster
                 xInt = (dx / dy) * yD - xp + xf;
                 yInt = (dz / dy) * yD - zp + zf;
                 tx += xInt;
+                ty += ys;
                 tz += yInt;
             }
             else //z axis aligned surface
@@ -272,6 +310,7 @@ namespace TdCaster
                 yInt = (dy / dz) * zD - yp + yf;
                 tx += xInt;
                 ty += yInt;
+                tz += zs;
             }
             float ndx = tx - x;
             float ndy = ty - y;
@@ -281,12 +320,90 @@ namespace TdCaster
         }
         void drawView()
         {
-            
+            float pc = cos(pap);
+            float ps = sin(pap);
+            float dc = cos(pad);
+            float ds = sin(pad);
+            float viewWidthd2 = tan(pfh / 2);
+            float viewHeightd2 = tan(pfv / 2);
+            float tlVecX = 1, tlVecY = viewWidthd2, tlVecZ = -viewHeightd2;
+            float blVecX = 1, blVecY = viewWidthd2, blVecZ = viewHeightd2;
+            float trVecX = 1, trVecY = -viewWidthd2, trVecZ = -viewHeightd2;
+            rotateVectorY(&tlVecX, &tlVecZ, pc, ps);
+            rotateVectorZ(&tlVecX, &tlVecY, dc, ds);
+            rotateVectorY(&trVecX, &trVecZ, pc, ps);
+            rotateVectorZ(&trVecX, &trVecY, dc, ds);
+            rotateVectorY(&blVecX, &blVecZ, pc, ps);
+            rotateVectorZ(&blVecX, &blVecY, dc, ds);
+            float lDiffX = (blVecX - tlVecX) / viewHeight, lDiffY = (blVecY - tlVecY) / viewHeight, lDiffZ = (blVecZ - tlVecZ) / viewHeight;
+            float cDiffX = (trVecX - tlVecX) / viewWidth, cDiffY = (trVecY - tlVecY) / viewWidth, cDiffZ = (trVecZ - tlVecZ) / viewWidth;
+            float lVecX = tlVecX, lVecY = tlVecY, lVecZ = tlVecZ;
+            for(int i = 0; i < viewHeight; i++) {
+                float rVecX = lVecX, rVecY = lVecY, rVecZ = lVecZ;
+                for(int j = 0; j < viewWidth; j++) {
+                    RaycastCollision res = raycast(px, py, pz, rVecX, rVecY, rVecZ);
+                    olc::Pixel drawColor = olc::BLANK;
+                    switch(res.value) {
+                        case 1:
+                            drawColor = floorSprite->GetPixel(res.xInt * floorSprite->width, res.yInt * floorSprite->height);
+                            break;
+                        case 2:
+                            drawColor = ceilSprite->GetPixel(res.xInt * ceilSprite->width, res.yInt * ceilSprite->height);
+                            break;
+                        case 3:
+                            drawColor = wallSprite->GetPixel(res.xInt * wallSprite->width, res.yInt * wallSprite->height);
+                            break;
+                    }
+                    Draw(j, i, drawColor);
+                    rVecX += cDiffX; rVecY += cDiffY; rVecZ += cDiffZ;
+                }
+                lVecX += lDiffX; lVecY += lDiffY; lVecZ += lDiffZ;
+            }
+        }
+        void drawTopDown() {
+            int blockSize = 32;
+            for(int i = 0; i < width; i++) {
+                for(int j = 0; j < height; j++) {
+                    int value = walls[i + j * width];
+                    if(value != 0) {
+                        DrawRect(i * blockSize, j * blockSize, blockSize, blockSize, olc::WHITE);
+                    }
+                }
+            }
+            int camRad = 4;
+            int vx = (int)(px * blockSize);
+            int vy = (int)(py * blockSize);
+            DrawRect(vx - camRad, vy - camRad, camRad * 2, camRad * 2, olc::BLUE);
+            float vam = cos(pap);
+            TdCaster::RaycastCollision col = raycast(px, py, pz, cos(pad) * vam, sin(pad) * vam, sin(pap));
+            olc::Pixel hitCol = olc::WHITE;
+            switch(col.value) {
+                case 1:
+                    hitCol = olc::YELLOW;
+                    break;
+                case 2:
+                    hitCol = olc::GREY;
+                    break;
+                case 3:
+                    hitCol = olc::CYAN;
+                    break;
+            }
+            DrawLine(vx, vy, col.tx * blockSize, col.ty * blockSize, hitCol);
+            DrawLine(vx, vy, vx + cos(pad) * 16, vy + sin(pad) * 16, olc::RED);
+            // DrawLine(vx, vy, vx + cos(pad) * sqrt(col.distSqr) * blockSize, vy + sin(pad) * sqrt(col.distSqr) * blockSize, olc::WHITE);
+            DrawRect(width * blockSize, 0, blockSize, blockSize, olc::BLUE);
+            DrawCircle((width + col.xInt) * blockSize, col.yInt * blockSize, 2, olc::RED);
         }
         bool OnUserUpdate(float elapsed) override
         {
+            Clear(olc::Pixel(0, 0, 0));
             //draw pixels
-            drawView();
+            if(viewMode == 0) {
+                drawView();
+            }
+            else if(viewMode == 1) {
+                drawTopDown();
+            }
             //handle input
             DrawString(4, 4, "xya: " + std::to_string(px) + ", " + std::to_string(py) + ", " + std::to_string(pad), olc::BLUE);
             if(GetKey(olc::Key::LEFT).bHeld)
@@ -299,11 +416,11 @@ namespace TdCaster
             }
             if(GetKey(olc::Key::UP).bHeld)
             {
-                pap -= turnSpeed * elapsed;
+                pap += turnSpeed * elapsed;
             }
             if(GetKey(olc::Key::DOWN).bHeld)
             {
-                pap += turnSpeed * elapsed;
+                pap -= turnSpeed * elapsed;
             }
             if(GetKey(olc::Key::W).bHeld)
             {
@@ -325,7 +442,20 @@ namespace TdCaster
                 px += cos(pad + M_PI / 2) * moveSpeed * elapsed;
                 py += sin(pad + M_PI / 2) * moveSpeed * elapsed;
             }
+            if(GetKey(olc::Key::V).bPressed) {
+                viewMode = (viewMode + 1) % 2;
+            }
             return true;
         }
     };
+}
+
+int main(int argc, char* argv[]) {
+    std::string argv_str(argv[0]);
+    std::string base = argv_str.substr(0, argv_str.find_last_of(PATH_SLASH));
+    TdCaster::TdCasterApplication app(base);
+    if(app.Construct(1024, 768, 1, 1)) {
+        app.Start();
+    }
+    return 0;
 }
