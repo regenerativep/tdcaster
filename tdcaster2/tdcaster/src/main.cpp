@@ -34,29 +34,62 @@ namespace TdCaster
         *x = nx;
         *y = ny;
     }
-    inline olc::Pixel lightEffect(olc::Pixel pix, float distSqr, float lightAmount = 8) {
-        // return olc::Pixel(
-        //     std::min((int)(pix.r * (lightAmount / distSqr)), (int)pix.r),
-        //     std::min((int)(pix.g * (lightAmount / distSqr)), (int)pix.g),
-        //     std::min((int)(pix.b * (lightAmount / distSqr)), (int)pix.b)
-        // );
+    inline void projectVector(float x, float y, float z, float tx, float ty, float tz, float* ox, float* oy, float* oz) {
+        float dotWithT = x * tx + y * ty + z * tz;
+        float tMagSqr = tx * tx + ty * ty + tz * tz;
+        float scalar = dotWithT / tMagSqr;
+        *ox = tx * scalar;
+        *oy = ty * scalar;
+        *oz = tz * scalar;
+    }
+    inline olc::Pixel dimEffect(olc::Pixel pix, float amount) {
         return olc::Pixel(
-            std::min((int)(pix.r * (lightAmount / distSqr)), 255),
-            std::min((int)(pix.g * (lightAmount / distSqr)), 255),
-            std::min((int)(pix.b * (lightAmount / distSqr)), 255)
+            (int)(pix.r / amount),
+            (int)(pix.g / amount),
+            (int)(pix.b / amount)
         );
     }
+    struct Light {
+        float x;
+        float y;
+        float z;
+        float lr;
+        float lg;
+        float lb;
+    };
+    inline olc::Pixel lightEffect(olc::Pixel pix, float x, float y, float z, std::vector<Light> lights) {//float distSqr, float ar, float ag, float ab) {
+        float arS = 0;
+        float agS = 0;
+        float abS = 0;
+        for(int i = 0; i < lights.size(); i++) {
+            auto& light = lights.at(i);
+            float ndx = x - light.x;
+            float ndy = y - light.y;
+            float ndz = z - light.z;
+            float distSqr = ndx * ndx + ndy * ndy + ndz * ndz;
+            arS += light.lr / distSqr;
+            agS += light.lg / distSqr;
+            abS += light.lb / distSqr;
+        }
+        return olc::Pixel(
+            std::min((int)(pix.r * arS), 255),
+            std::min((int)(pix.g * agS), 255),
+            std::min((int)(pix.b * abS), 255)
+        );
+    }
+    // inline olc::Pixel normalMapEffect(float toLightX, float toLightY, float toLightZ, float toLightSqr, float toCamX, float toCamY, float toCamZ, float ar, float ag, float ab, float* ox, float* oy, float* oz) {
+        
+    // }
     struct RaycastCollision
     {
         int value;
-        float distSqr;
         float xInt, yInt;
         float tx, ty, tz;
         float dx, dy, dz;
-        RaycastCollision(int value, float distSqr, float xInt, float yInt, float tx, float ty, float tz, float dx, float dy, float dz)
+        int dir;
+        RaycastCollision(int value, float xInt, float yInt, float tx, float ty, float tz, float dx, float dy, float dz, int dir)
         {
             this->value = value;
-            this->distSqr = distSqr;
             this->xInt = xInt;
             this->yInt = yInt;
             this->tx = tx;
@@ -65,6 +98,7 @@ namespace TdCaster
             this->dx = dx;
             this->dy = dy;
             this->dz = dz;
+            this->dir = dir;
         }
     };
     inline olc::Pixel getPixelFromImage(olc::Sprite* sprite, float xInt, float yInt)
@@ -84,9 +118,11 @@ namespace TdCaster
         float px, py, pz, pad, pap, pfh, pfv;
         float turnSpeed, moveSpeed;
         int viewMode;
+        std::vector<Light> lights;
 
         olc::Sprite* wallSprite;
         olc::Sprite* floorSprite;
+        olc::Sprite* floorNmSprite;
         olc::Sprite* ceilSprite;
         TdCasterApplication(std::string path)
         {
@@ -99,10 +135,15 @@ namespace TdCaster
             wallSprite = new olc::Sprite(resourcePath + "bricks.png");
             ceilSprite = new olc::Sprite(resourcePath + "ceiling.png");
             floorSprite = new olc::Sprite(resourcePath + "floor.png");
+            floorNmSprite = new olc::Sprite(resourcePath + "floor_nm.png");
 
+            lights = std::vector<Light>();
+            lights.push_back(Light { 3, 3, 0.7, 2, 0, 0 });
+            lights.push_back(Light { 6, 6, 0.7, 0, 2, 0 });
+            lights.push_back(Light { 4, 4, 0.7, 3, 3, 3 });
             viewMode = 0;
-            viewWidth = ScreenWidth();//512;
-            viewHeight = ScreenHeight();//384;
+            viewWidth = ScreenWidth();
+            viewHeight = ScreenHeight();
             width = 8;
             height = 8;
             turnSpeed = 2;
@@ -111,10 +152,10 @@ namespace TdCaster
             ceiling = new int[totalCells] {
                 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 2, 2, 2, 2, 1, 1,
+                1, 1, 2, 1, 1, 2, 1, 1,
+                1, 1, 2, 1, 1, 2, 1, 1,
+                1, 1, 2, 2, 2, 2, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 1, 1, 1, 1
             };
@@ -122,8 +163,8 @@ namespace TdCaster
                 2, 2, 2, 2, 2, 2, 2, 2,
                 2, 2, 2, 2, 2, 2, 2, 2,
                 2, 2, 2, 2, 2, 2, 2, 2,
-                2, 2, 2, 2, 2, 2, 2, 2,
-                2, 2, 2, 2, 2, 2, 2, 2,
+                2, 2, 2, 1, 1, 2, 2, 2,
+                2, 2, 2, 1, 1, 2, 2, 2,
                 2, 2, 2, 2, 2, 2, 2, 2,
                 2, 2, 2, 2, 2, 2, 2, 2,
                 2, 2, 2, 2, 2, 2, 2, 2
@@ -149,19 +190,24 @@ namespace TdCaster
             return true;
         }
         inline RaycastCollision raycast(float x, float y, float z, float dx, float dy, float dz, int passes = 0) {
+            // calculate initial conditions
+            // - floored initial position
             int cx = std::floor(x);
             int cy = std::floor(y);
             int cz = std::floor(z);
-            int ind = cx + cy * width;
-            int value = walls[ind];
+            // - fraction only value
             float xf = x - cx;
             float yf = y - cy;
             float zf = z - cz;
+            // - step values
             float idx = 1.0 / abs(dx);
             float idy = 1.0 / abs(dy);
             float idz = 1.0 / abs(dz);
+            // - sign of direction vector components
             int xi, yi, zi;
+            // - sign of direction vector components, but 0 is nonpositive
             int xs, ys, zs;
+            // - total amount of step
             float tnv, tnh, tnl;
             if(dx > 0)
             {
@@ -220,11 +266,18 @@ namespace TdCaster
                 tnl = zf * idz;
                 zs = 0;
             }
+            // scene traversal loop
+            // - array index of world array
+            int ind = cx + cy * width;
+            // - starting value from current position in world array
+            int value = walls[ind];
+            // - total integer change in cell position
             int xp = 0, yp = 0, zp = 0;
-            int lastDir = 0; //0 -> x, 1 -> y, 2 -> z
+            // - last cell intersection direction (direction being which way the face aligns)
+            int lastDir = 0; //0 -> x, 1 -> y, 2 -> z // TODO: use an enum
             for(; passes < viewDistance; passes++)
             {
-                //run the smallest tn axis value
+                // run the smallest tn* axis value (finds the axis of our intersected face)
                 //tnl is default
                 lastDir = 2;
                 if(tnv < tnh)
@@ -239,8 +292,8 @@ namespace TdCaster
                 {
                     //tnh
                     lastDir = 0;
-                    // continue;
                 }
+                // step in direction of face
                 if(lastDir == 0)
                 {
                     tnh += idx;
@@ -263,7 +316,7 @@ namespace TdCaster
                 }
                 else
                 {
-                    //we dont care about moving up or down. we know we hit a floor or ceiling
+                    //we dont care about moving up or down. we know we hit a floor or ceiling. break
                     if(zi == 1)
                     {
                         value = ceiling[ind];
@@ -275,13 +328,14 @@ namespace TdCaster
                     zp += zi;
                     break;
                 }
+                // update current value
                 value = walls[ind];
+                // if value is not 0, then we hit something
                 if(value != 0)
                 {
                     break;
                 }
             }
-            //float dxdy = dx / dy, dydx = dy / dx;
             if(lastDir == 0)
             {
                 xp -= xi;
@@ -324,29 +378,29 @@ namespace TdCaster
                 ty += yInt;
                 tz += zs;
             }
-            float ndx = tx - x;
-            float ndy = ty - y;
-            float ndz = tz - z;
-            float distSqr = ndx * ndx + ndy * ndy + ndz * ndz;
-            return RaycastCollision(value, distSqr, xInt, yInt, tx, ty, tz, dx, dy, dz);
+            return RaycastCollision(value, xInt, yInt, tx, ty, tz, dx, dy, dz, lastDir);
         }
-        inline void drawView()
+        void drawView()
         {
+            // rotation vectors
             float pc = cos(pap);
             float ps = sin(pap);
             float dc = cos(pad);
             float ds = sin(pad);
             float viewWidthd2 = tan(pfh / 2);
             float viewHeightd2 = tan(pfv / 2);
+            // basic view positions
             float tlVecX = 1, tlVecY = viewWidthd2, tlVecZ = -viewHeightd2;
             float blVecX = 1, blVecY = viewWidthd2, blVecZ = viewHeightd2;
             float trVecX = 1, trVecY = -viewWidthd2, trVecZ = -viewHeightd2;
+            // rotate starting view positions to fit our view
             rotateVectorY(&tlVecX, &tlVecZ, pc, ps);
             rotateVectorZ(&tlVecX, &tlVecY, dc, ds);
             rotateVectorY(&trVecX, &trVecZ, pc, ps);
             rotateVectorZ(&trVecX, &trVecY, dc, ds);
             rotateVectorY(&blVecX, &blVecZ, pc, ps);
             rotateVectorZ(&blVecX, &blVecY, dc, ds);
+
             float lDiffX = (blVecX - tlVecX) / viewHeight, lDiffY = (blVecY - tlVecY) / viewHeight, lDiffZ = (blVecZ - tlVecZ) / viewHeight;
             float cDiffX = (trVecX - tlVecX) / viewWidth, cDiffY = (trVecY - tlVecY) / viewWidth, cDiffZ = (trVecZ - tlVecZ) / viewWidth;
             float lVecX = tlVecX, lVecY = tlVecY, lVecZ = tlVecZ;
@@ -354,6 +408,15 @@ namespace TdCaster
                 float rVecX = lVecX, rVecY = lVecY, rVecZ = lVecZ;
                 for(int j = 0; j < viewWidth; j++) {
                     RaycastCollision res = raycast(px, py, pz, rVecX, rVecY, rVecZ);
+                    float lr = 0;
+                    float lg = 0;
+                    float lb = 0;
+                    // distance from light
+                    // float ndx = res.tx - 4;
+                    // float ndy = res.ty - 4;
+                    // float ndz = res.tz - 0.5;
+                    // float distSqr = ndx * ndx + ndy * ndy + ndz * ndz;
+                    // find the color
                     olc::Pixel drawColor = olc::BLANK;
                     switch(res.value) {
                         case 1:
@@ -366,8 +429,11 @@ namespace TdCaster
                             drawColor = getPixelFromImage(wallSprite, res.xInt, res.yInt);
                             break;
                     }
-                    drawColor = lightEffect(drawColor, res.distSqr, 1);
+                    // singular light effect
+                    drawColor = lightEffect(drawColor, res.tx, res.ty, res.tz, this->lights);
+                    // draw pixel
                     Draw(j, i, drawColor);
+
                     rVecX += cDiffX; rVecY += cDiffY; rVecZ += cDiffZ;
                 }
                 lVecX += lDiffX; lVecY += lDiffY; lVecZ += lDiffZ;

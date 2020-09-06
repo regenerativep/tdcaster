@@ -35,6 +35,7 @@ project "tdcaster"
     filter "configurations:release"
         defines { "NDEBUG" }
         optimize "Speed"
+        -- optimize "Full"
     filter "platforms:linux"
         links {
             "GL",
