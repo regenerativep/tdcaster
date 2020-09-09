@@ -138,9 +138,9 @@ namespace TdCaster
             floorNmSprite = new olc::Sprite(resourcePath + "floor_nm.png");
 
             lights = std::vector<Light>();
-            lights.push_back(Light { 3, 3, 0.7, 2, 0, 0 });
-            lights.push_back(Light { 6, 6, 0.7, 0, 2, 0 });
-            lights.push_back(Light { 4, 4, 0.7, 3, 3, 3 });
+            lights.push_back(Light { 2, 2, 0.7, 1, 0, 0 });
+            lights.push_back(Light { 6, 6, 0.7, 0, 1, 0 });
+            lights.push_back(Light { 4, 4, 0.3, 0.5, 0.5, 0.5 });
             viewMode = 0;
             viewWidth = ScreenWidth();
             viewHeight = ScreenHeight();
