@@ -15,6 +15,14 @@ struct RaycastResult {
     ty: f32,
     tz: f32,
 }
+struct Light {
+    x: f32,
+    y: f32,
+    z: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+}
 enum HitDirection {
     X, Y, Z,
 }
@@ -154,35 +162,35 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
         HitDirection::Z => zp -= zi,
     }
     let (mut tx, mut ty, mut tz): (f32, f32, f32) = (
-        cx as f32 + xp as f32,
-        cy as f32 + yp as f32,
-        cz as f32 + zp as f32
+        cx as f32 + xp,
+        cy as f32 + yp,
+        cz as f32 + zp
     );
     let (x_int, y_int);
     match &last_dir {
         HitDirection::X => {
-            let x_d = xp as f32 + xs - xf;
-            x_int = (dy / dx) * x_d - yp as f32 + yf;
-            y_int = (dz / dx) * x_d - zp as f32 + zf;
-            tx += xs as f32;
+            let x_d = xp + xs - xf;
+            x_int = (dy / dx) * x_d - yp + yf;
+            y_int = (dz / dx) * x_d - zp + zf;
+            tx += xs;
             ty += x_int;
             tz += y_int;
         },
         HitDirection::Y => {
-            let y_d = yp as f32 + ys - yf;
-            x_int = (dx / dy) * y_d - xp as f32 + xf;
-            y_int = (dz / dy) * y_d - zp as f32 + zf;
+            let y_d = yp + ys - yf;
+            x_int = (dx / dy) * y_d - xp + xf;
+            y_int = (dz / dy) * y_d - zp + zf;
             tx += x_int;
-            ty += ys as f32;
+            ty += ys;
             tz += y_int;
         },
         HitDirection::Z => {
-            let z_d = zp as f32 + zs - zf;
-            x_int = (dx / dz) * z_d - xp as f32 + xf;
-            y_int = (dy / dz) * z_d - yp as f32 + yf;
+            let z_d = zp + zs - zf;
+            x_int = (dx / dz) * z_d - xp + xf;
+            y_int = (dy / dz) * z_d - yp + yf;
             tx += x_int;
             ty += y_int;
-            tz += zs as f32;
+            tz += zs;
         },
     }
     return RaycastResult {
@@ -220,6 +228,13 @@ fn div((ax, ay, az): (f32, f32, f32), b: f32) -> (f32, f32, f32) {
         ax / b,
         ay / b,
         az / b
+    )
+}
+fn mult((ax, ay, az): (f32, f32, f32), b: f32) -> (f32, f32, f32) {
+    (
+        ax * b,
+        ay * b,
+        az * b
     )
 }
 struct Sprite {
@@ -264,6 +279,7 @@ struct ExampleProgram {
     world: RaycastWorld,
     camera: Camera,
     assets: Assets,
+    lights: Vec<Light>,
 }
 impl Assets {
     fn new() -> Assets {
@@ -278,6 +294,10 @@ const TURN_SPEED: f32 = 2.0;
 const MOVE_SPEED: f32 = 3.0;
 impl olc::Application for ExampleProgram {
     fn on_user_create(&mut self) -> Result<(), olc::Error> {
+        self.lights.push(Light {
+            x: 2.0, y: 2.0, z: 2.0,
+            r: 1.0, g: 1.0, b: 1.0,
+        });
         Ok(())
     }
     fn on_user_update(&mut self, elapsed_time: f32) -> Result<(), olc::Error> {
@@ -328,6 +348,24 @@ impl olc::Application for ExampleProgram {
 fn get_pixel_from_intercept(spr: &olc::Sprite, x_int: f32, y_int: f32) -> olc::Pixel {
     spr.get_pixel((x_int * spr.width() as f32) as i32, (y_int * spr.height() as f32) as i32)
 }
+fn light_effect(col: olc::Pixel, lights: &Vec<Light>, tx: f32, ty: f32, tz: f32) -> olc::Pixel {
+    let mut total_r: f32 = 0.0;
+    let mut total_g: f32 = 0.0;
+    let mut total_b: f32 = 0.0;
+    for light in lights.iter() {
+        let (ndx, ndy, ndz) = (tx - light.x, ty - light.y, tz - light.z);
+        let magnitude_sqr = ndx * ndx + ndy * ndy + ndz * ndz;
+        total_r += light.r / magnitude_sqr;
+        total_g += light.g / magnitude_sqr;
+        total_b += light.b / magnitude_sqr;
+    }
+    olc::Pixel {
+        r: ((255.0 as f32).min(col.r as f32 * total_r)) as u8,
+        g: ((255.0 as f32).min(col.g as f32 * total_g)) as u8,
+        b: ((255.0 as f32).min(col.b as f32 * total_b)) as u8,
+        a: col.a,
+    }
+}
 impl ExampleProgram {
 
     fn draw_view(&self) {
@@ -357,38 +395,28 @@ impl ExampleProgram {
         );
         let l_diff = div(sub(bl_vec, tl_vec), self.camera.res_y as f32);
         let c_diff = div(sub(tr_vec, tl_vec), self.camera.res_x as f32);
+        let nums_to_iter: Vec<usize> = (0..4).collect();
+        let width_per_column: usize = self.camera.res_x / nums_to_iter.len();
+        nums_to_iter.par_iter().for_each(|&i| {
+            let local_tl_vec = add(tl_vec, mult(c_diff, (i * width_per_column) as f32));
+            self.draw_view_part(local_tl_vec, l_diff, c_diff, i * width_per_column, 0, i * width_per_column + width_per_column, self.camera.res_y);
+        });
+    }
+    fn draw_view_part(&self, tl_vec: (f32, f32, f32), l_diff: (f32, f32, f32), c_diff: (f32, f32, f32), x_begin: usize, y_begin: usize, x_end: usize, y_end: usize) {
         let mut l_vec = (tl_vec.0, tl_vec.1, tl_vec.2);
-        // let row_inds: Vec<_> = (0..self.camera.res_x).map(|i| i as f32).collect();
-        // for j in 0..self.camera.res_y {
-        //     row_inds.par_iter().for_each(|&i| {
-        //         let r_vec = (
-        //             &l_vec.0 + &c_diff.0 * i,
-        //             &l_vec.1 + &c_diff.1 * i,
-        //             &l_vec.2 + &c_diff.2 * i,
-        //         );
-        //         let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), r_vec);
-        //         let draw_color = match &res.value {
-        //             1 => self.assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
-        //             2 => self.assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
-        //             3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
-        //             _ => &olc::BLANK,
-        //         };
-        //         olc::draw(i as i32, j as i32, *draw_color);
-        //     });
-        //     l_vec = add(l_vec, l_diff);
-        // }
-        for i in 0..self.camera.res_y {
+        for i in y_begin..y_end {
             let mut r_vec = (l_vec.0, l_vec.1, l_vec.2);
-            for j in 0..self.camera.res_x {
+            for j in x_begin..x_end {
                 let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), r_vec);
-                let draw_color = match &res.value {
+                let mut draw_color = *match &res.value {
                     1 => self.assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
                     2 => self.assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
                     3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
                     _ => &olc::BLANK,
                 };
-                olc::draw(j as i32, i as i32, *draw_color);
-                r_vec = add(r_vec, c_diff);
+                draw_color = light_effect(draw_color, &self.lights, res.tx, res.ty, res.tz);
+                olc::draw(j as i32, i as i32, draw_color);
+                r_vec = add(r_vec, c_diff); // todo: maybe change to mutating?
             }
             l_vec = add(l_vec, l_diff);
         }
@@ -405,10 +433,8 @@ impl ExampleProgram {
             }
         }
         let cam_radius = 4;
-        let (vx, vy) = (
-            (self.camera.x * block_size as f32) as i32,
-            (self.camera.y * block_size as f32) as i32
-        );
+        let vx = (self.camera.x * block_size as f32) as i32;
+        let vy = (self.camera.y * block_size as f32) as i32;
         olc::draw_rect(
             vx - cam_radius,
             vy - cam_radius,
@@ -484,6 +510,7 @@ fn main() {
             res_x: resx, res_y: resy,
         },
         assets: Assets::new(),
+        lights: vec!(),
     };
     olc::start("Hello, world!", &mut example, resx as i32, resy as i32, 1, 1).unwrap();
 }
