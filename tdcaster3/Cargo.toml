@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 olc_pixel_game_engine = "0.5.0"
 rand = "0.7.3"
+rayon = "1.4.0"

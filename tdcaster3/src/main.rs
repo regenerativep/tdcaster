@@ -1,6 +1,7 @@
 extern crate olc_pixel_game_engine;
 
 use crate::olc_pixel_game_engine as olc;
+use rayon::prelude::*;
 
 struct RaycastWorld {
     map: Vec<u8>,
@@ -25,41 +26,43 @@ impl RaycastWorld {
         }
     }
 }
-fn initial_raycast_axis(d: f32, f: f32, id: f32) -> (isize, f32, u8) {
+fn initial_raycast_axis(d: f32, f: f32, id: f32) -> (f32, f32, f32, isize) {
     if d > 0.0 {
         (
-            1,
+            1.0,
             (1.0 - f) * id,
+            1.0,
             1
         )
     }
     else {
         (
-            if d < 0.0 { -1 } else { 0 },
+            if d < 0.0 { -1.0 } else { 0.0 },
             f * id,
-            0
+            0.0,
+            if d < 0.0 { -1 } else { 0 }
         )
     }
 }
 
 fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32, f32, f32)) -> RaycastResult {
-    let cx = x.floor() as u32;
-    let cy = y.floor() as u32;
-    let cz = z.floor() as u32;
-    let xf = x - cx as f32;
-    let yf = y - cy as f32;
-    let zf = z - cz as f32;
-    let idx = dx.abs().recip();
-    let idy = dy.abs().recip();
-    let idz = dz.abs().recip();
-    let (xi, mut tnx, xs) = initial_raycast_axis(dx, xf, idx);
-    let (yi, mut tny, ys) = initial_raycast_axis(dy, yf, idy);
-    let (zi, mut tnz, zs) = initial_raycast_axis(dz, zf, idz);
-    let max_passes = 16;
-    let mut last_dir = HitDirection::X;
-    let (mut xp, mut yp, mut zp) = (0, 0, 0);
-    let mut world_index: isize = cx as isize + cy as isize * world.size.0 as isize + cz as isize * (world.size.0 * world.size.1) as isize;
-    let mut passes = 0;
+    let cx: isize = x.floor() as isize;
+    let cy: isize = y.floor() as isize;
+    let cz: isize = z.floor() as isize;
+    let xf: f32 = x - cx as f32;
+    let yf: f32 = y - cy as f32;
+    let zf: f32 = z - cz as f32;
+    let idx: f32 = dx.abs().recip();
+    let idy: f32 = dy.abs().recip();
+    let idz: f32 = dz.abs().recip();
+    let (xi, mut tnx, xs, xi_i): (f32, f32, f32, isize) = initial_raycast_axis(dx, xf, idx);
+    let (yi, mut tny, ys, yi_i): (f32, f32, f32, isize) = initial_raycast_axis(dy, yf, idy);
+    let (zi, mut tnz, zs, zi_i): (f32, f32, f32, isize) = initial_raycast_axis(dz, zf, idz);
+    let max_passes: usize = 16;
+    let mut last_dir: HitDirection = HitDirection::X;
+    let (mut xp, mut yp, mut zp): (f32, f32, f32) = (0.0, 0.0, 0.0);
+    let mut world_index: isize = cx + cy * world.size.0 as isize + cz * (world.size.0 * world.size.1) as isize;
+    let mut passes: usize = 0;
     let mut current_value: u8 = 0;
     loop {
         if passes > max_passes {
@@ -69,7 +72,6 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
             Some(value) => {
                 current_value = *value;
                 if current_value != 0 {
-                    // println!("found {}", current_value);
                     break;
                 }
             },
@@ -78,50 +80,73 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
                 break;
             },
         }
+        // current_value = world.map[world_index as usize];
+        // if current_value != 0 {
+        //     break;
+        // }
         passes += 1;
-        last_dir = if tny < tnx {
-            if tny < tnz {
+        last_dir = match (tny < tnx, tny < tnz, tnx < tnz) {
+            (true, true, _) => {
+                tny += idy;
+                yp += yi;
+                world_index += yi_i * world.size.0 as isize;
                 HitDirection::Y
-            }
-            else {
-                HitDirection::Z
-            }
-        }
-        else {
-            if tnx < tnz {
+            },
+            (false, _, true) => {
+                tnx += idx;
+                xp += xi;
+                world_index += xi_i;
                 HitDirection::X
-            }
-            else {
+            },
+            _ => {
+                tnz += idz;
+                zp += zi;
+                world_index += zi_i * (world.size.0 * world.size.1) as isize;
                 HitDirection::Z
             }
         };
-        match last_dir {
-            HitDirection::Y => {
-                tny += idy;
-                yp += yi;
-                world_index += yi * world.size.0 as isize;
-                if cy as isize + yp < 0 || cy as isize + yp >= world.size.1 as isize {
-                    break;
-                }
-            },
-            HitDirection::X => {
-                tnx += idx;
-                xp += xi;
-                world_index += xi;
-                if cx as isize + xp < 0 || cx as isize + xp >= world.size.0 as isize {
-                    break;
-                }
-            },
-            HitDirection::Z => {
-                // println!("vertical movement");
-                tnz += idz;
-                zp += zi;
-                world_index += zi * (world.size.0 * world.size.1) as isize;
-                if cz as isize + zp < 0 || cz as isize + zp >= world.size.2 as isize {
-                    break;
-                }
-            },
-        }
+        // last_dir = if tny < tnx {
+        //     if tny < tnz {
+        //         HitDirection::Y
+        //     }
+        //     else {
+        //         HitDirection::Z
+        //     }
+        // }
+        // else {
+        //     if tnx < tnz {
+        //         HitDirection::X
+        //     }
+        //     else {
+        //         HitDirection::Z
+        //     }
+        // };
+        // match last_dir {
+        //     HitDirection::Y => {
+        //         tny += idy;
+        //         yp += yi;
+        //         world_index += yi_i * world.size.0 as isize;
+        //         // if cy + yp < 0 || cy + yp >= world.size.1 as isize {
+        //         //     break;
+        //         // }
+        //     },
+        //     HitDirection::X => {
+        //         tnx += idx;
+        //         xp += xi;
+        //         world_index += xi_i;
+        //         // if cx as isize + xp < 0 || cx as isize + xp >= world.size.0 as isize {
+        //         //     break;
+        //         // }
+        //     },
+        //     HitDirection::Z => {
+        //         tnz += idz;
+        //         zp += zi;
+        //         world_index += zi_i * (world.size.0 * world.size.1) as isize;
+        //         // if cz as isize + zp < 0 || cz as isize + zp >= world.size.2 as isize {
+        //         //     break;
+        //         // }
+        //     },
+        // }
     }
     match &last_dir {
         HitDirection::X => xp -= xi,
@@ -136,7 +161,7 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
     let (x_int, y_int);
     match &last_dir {
         HitDirection::X => {
-            let x_d = xp as f32 + xs as f32 - xf;
+            let x_d = xp as f32 + xs - xf;
             x_int = (dy / dx) * x_d - yp as f32 + yf;
             y_int = (dz / dx) * x_d - zp as f32 + zf;
             tx += xs as f32;
@@ -144,7 +169,7 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
             tz += y_int;
         },
         HitDirection::Y => {
-            let y_d = yp as f32 + ys as f32 - yf;
+            let y_d = yp as f32 + ys - yf;
             x_int = (dx / dy) * y_d - xp as f32 + xf;
             y_int = (dz / dy) * y_d - zp as f32 + zf;
             tx += x_int;
@@ -152,7 +177,7 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
             tz += y_int;
         },
         HitDirection::Z => {
-            let z_d = zp as f32 + zs as f32 - zf;
+            let z_d = zp as f32 + zs - zf;
             x_int = (dx / dz) * z_d - xp as f32 + xf;
             y_int = (dy / dz) * z_d - yp as f32 + yf;
             tx += x_int;
@@ -197,6 +222,32 @@ fn div((ax, ay, az): (f32, f32, f32), b: f32) -> (f32, f32, f32) {
         az / b
     )
 }
+struct Sprite {
+    pixels: Vec<olc::Pixel>,
+    width: usize,
+    height: usize,
+}
+impl Sprite {
+    fn from_olc_sprite(spr: &olc::Sprite) -> Sprite {
+        let mut pixels: Vec<olc::Pixel> = vec!();
+        for j in 0..spr.height() {
+            for i in 0..spr.width() {
+                pixels.push(spr.get_pixel(i as i32, j as i32));
+            }
+        }
+        Sprite {
+            pixels: pixels,
+            width: spr.width() as usize,
+            height: spr.height() as usize,
+        }
+    }
+    fn get_pixel(&self, x: usize, y: usize) -> &olc::Pixel {
+        self.pixels.get(x + y * self.width).unwrap_or(&olc::BLANK)
+    }
+    fn get_pixel_from_intercept(&self, x_int: f32, y_int: f32) -> &olc::Pixel{
+        self.get_pixel((x_int * self.width as f32) as usize, (y_int * self.height as f32) as usize)
+    }
+}
 
 struct Camera {
     x: f32, y: f32, z: f32,
@@ -204,24 +255,33 @@ struct Camera {
     fov_x: f32, fov_y: f32,
     res_x: usize, res_y: usize,
 }
+struct Assets {
+    wall_sprite: Sprite,
+    ceil_sprite: Sprite,
+    floor_sprite: Sprite,
+}
 struct ExampleProgram {
     world: RaycastWorld,
     camera: Camera,
-    wall_sprite: Option<olc::Sprite>,
-    ceil_sprite: Option<olc::Sprite>,
-    floor_sprite: Option<olc::Sprite>,
+    assets: Assets,
+}
+impl Assets {
+    fn new() -> Assets {
+        Assets {
+            wall_sprite: Sprite::from_olc_sprite(&olc::Sprite::from_image("./resources/bricks.png").unwrap()),
+            ceil_sprite: Sprite::from_olc_sprite(&olc::Sprite::from_image("./resources/ceiling.png").unwrap()),
+            floor_sprite: Sprite::from_olc_sprite(&olc::Sprite::from_image("./resources/floor.png").unwrap()),
+        }
+    }
 }
 const TURN_SPEED: f32 = 2.0;
 const MOVE_SPEED: f32 = 3.0;
 impl olc::Application for ExampleProgram {
     fn on_user_create(&mut self) -> Result<(), olc::Error> {
-        self.wall_sprite = Some(olc::Sprite::from_image("./resources/bricks.png").unwrap());
-        self.ceil_sprite = Some(olc::Sprite::from_image("./resources/ceiling.png").unwrap());
-        self.floor_sprite = Some(olc::Sprite::from_image("./resources/floor.png").unwrap());
         Ok(())
     }
     fn on_user_update(&mut self, elapsed_time: f32) -> Result<(), olc::Error> {
-        olc::clear(olc::BLACK);
+        // olc::clear(olc::BLACK);
         self.draw_view();
         // self.draw_top_down();
         olc::draw_string(4, 4, &format!("xya: {}, {}, {}", self.camera.x, self.camera.y, self.camera.direction)[..], olc::BLUE);
@@ -270,11 +330,11 @@ fn get_pixel_from_intercept(spr: &olc::Sprite, x_int: f32, y_int: f32) -> olc::P
 }
 impl ExampleProgram {
 
-    fn draw_view(&mut self) {
+    fn draw_view(&self) {
         let (pc, ps, dc, ds) = (self.camera.pitch.cos(), self.camera.pitch.sin(), self.camera.direction.cos(), self.camera.direction.sin());
-        let view_width_d2 = (self.camera.fov_x / 2.0).tan();
+        let view_width_d2 = (self.camera.fov_x / 2.0).tan(); // todo: precalculable
         let view_height_d2 = (self.camera.fov_y / 2.0).tan();
-        let tl_vec: (f32, f32, f32) = rotate_vector_z(
+        let tl_vec: (f32, f32, f32) = rotate_vector_z( // todo: should test if functional style is slower or faster than procedural
             rotate_vector_y(
                 (1.0, view_width_d2, -view_height_d2),
                 pc, ps
@@ -298,23 +358,36 @@ impl ExampleProgram {
         let l_diff = div(sub(bl_vec, tl_vec), self.camera.res_y as f32);
         let c_diff = div(sub(tr_vec, tl_vec), self.camera.res_x as f32);
         let mut l_vec = (tl_vec.0, tl_vec.1, tl_vec.2);
+        // let row_inds: Vec<_> = (0..self.camera.res_x).map(|i| i as f32).collect();
+        // for j in 0..self.camera.res_y {
+        //     row_inds.par_iter().for_each(|&i| {
+        //         let r_vec = (
+        //             &l_vec.0 + &c_diff.0 * i,
+        //             &l_vec.1 + &c_diff.1 * i,
+        //             &l_vec.2 + &c_diff.2 * i,
+        //         );
+        //         let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), r_vec);
+        //         let draw_color = match &res.value {
+        //             1 => self.assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+        //             2 => self.assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+        //             3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+        //             _ => &olc::BLANK,
+        //         };
+        //         olc::draw(i as i32, j as i32, *draw_color);
+        //     });
+        //     l_vec = add(l_vec, l_diff);
+        // }
         for i in 0..self.camera.res_y {
             let mut r_vec = (l_vec.0, l_vec.1, l_vec.2);
             for j in 0..self.camera.res_x {
                 let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), r_vec);
                 let draw_color = match &res.value {
-                    1 => if let Some(spr) = &self.wall_sprite {
-                        get_pixel_from_intercept(spr, res.x_int, res.y_int)
-                    } else { olc::GREY },
-                    2 => if let Some(spr) = &self.ceil_sprite {
-                        get_pixel_from_intercept(spr, res.x_int, res.y_int)
-                    } else { olc::RED },
-                    3 => if let Some(spr) = &self.floor_sprite {
-                        get_pixel_from_intercept(spr, res.x_int, res.y_int)
-                    } else { olc::BLUE },
-                    _ => olc::BLANK,
+                    1 => self.assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    2 => self.assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    _ => &olc::BLANK,
                 };
-                olc::draw(j as i32, i as i32, draw_color);
+                olc::draw(j as i32, i as i32, *draw_color);
                 r_vec = add(r_vec, c_diff);
             }
             l_vec = add(l_vec, l_diff);
@@ -375,7 +448,7 @@ impl ExampleProgram {
 }
 
 fn main() {
-    let (width, height, length) = (8, 8, 8);
+    let (width, height, length) = (8, 8, 5);
     let (resx, resy) = (1024, 768);
     let mut example = ExampleProgram {
         world: RaycastWorld {
@@ -404,15 +477,13 @@ fn main() {
             size: (width, height, length),
         },
         camera: Camera {
-            x: 4.0, y: 4.0, z: 4.0,
+            x: (width as f32 / 2.0), y: (height as f32 / 2.0), z: (length as f32 / 2.0),
             direction: 0.0, pitch: 0.0,
             fov_x: (std::f64::consts::PI * (120.0 / 180.0) as f64) as f32,
             fov_y: (std::f64::consts::PI / 2.0 as f64) as f32,
             res_x: resx, res_y: resy,
         },
-        wall_sprite: None,
-        ceil_sprite: None,
-        floor_sprite: None,
+        assets: Assets::new(),
     };
     olc::start("Hello, world!", &mut example, resx as i32, resy as i32, 1, 1).unwrap();
 }
