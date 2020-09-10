@@ -280,6 +280,7 @@ struct ExampleProgram {
     camera: Camera,
     assets: Assets,
     lights: Vec<Light>,
+    elapsed: f64,
 }
 impl Assets {
     fn new() -> Assets {
@@ -294,10 +295,7 @@ const TURN_SPEED: f32 = 2.0;
 const MOVE_SPEED: f32 = 3.0;
 impl olc::Application for ExampleProgram {
     fn on_user_create(&mut self) -> Result<(), olc::Error> {
-        self.lights.push(Light {
-            x: 2.0, y: 2.0, z: 2.0,
-            r: 1.0, g: 1.0, b: 1.0,
-        });
+        self.world.map[4 + self.world.size.0 * 4 + self.world.size.0 * self.world.size.1 * 2] = 1;
         Ok(())
     }
     fn on_user_update(&mut self, elapsed_time: f32) -> Result<(), olc::Error> {
@@ -333,12 +331,22 @@ impl olc::Application for ExampleProgram {
             self.camera.x += (self.camera.direction + (std::f64::consts::PI as f32 / 2.0)).cos() * MOVE_SPEED * elapsed_time;
             self.camera.y += (self.camera.direction + (std::f64::consts::PI as f32 / 2.0)).sin() * MOVE_SPEED * elapsed_time;
         }
-        if olc::get_key(olc::Key::CTRL).held {
+        if olc::get_key(olc::Key::SHIFT).held {
             self.camera.z += MOVE_SPEED * elapsed_time;
         }
         if olc::get_key(olc::Key::SPACE).held {
             self.camera.z -= MOVE_SPEED * elapsed_time;
         }
+        self.lights = vec!(Light {
+                x: 2.0, y: 2.0, z: 2.5 + ((self.elapsed / 1.0).cos() * 1.5) as f32,
+                r: 3.0, g: 3.0, b: 3.0,
+            },
+            Light {
+                x: 2.0, y: 6.0, z: 2.0,
+                r: 2.0, g: 0.1, b: 0.1,
+            }
+        );
+        self.elapsed += elapsed_time as f64;
         Ok(())
     }
     fn on_user_destroy(&mut self) -> Result<(), olc::Error> {
@@ -348,16 +356,20 @@ impl olc::Application for ExampleProgram {
 fn get_pixel_from_intercept(spr: &olc::Sprite, x_int: f32, y_int: f32) -> olc::Pixel {
     spr.get_pixel((x_int * spr.width() as f32) as i32, (y_int * spr.height() as f32) as i32)
 }
-fn light_effect(col: olc::Pixel, lights: &Vec<Light>, tx: f32, ty: f32, tz: f32) -> olc::Pixel {
+fn light_effect(world: &RaycastWorld, col: olc::Pixel, lights: &Vec<Light>, tx: f32, ty: f32, tz: f32) -> olc::Pixel {
     let mut total_r: f32 = 0.0;
     let mut total_g: f32 = 0.0;
     let mut total_b: f32 = 0.0;
     for light in lights.iter() {
-        let (ndx, ndy, ndz) = (tx - light.x, ty - light.y, tz - light.z);
-        let magnitude_sqr = ndx * ndx + ndy * ndy + ndz * ndz;
-        total_r += light.r / magnitude_sqr;
-        total_g += light.g / magnitude_sqr;
-        total_b += light.b / magnitude_sqr;
+        let res = raycast(world, (light.x, light.y, light.z), (tx - light.x, ty - light.y, tz - light.z));
+        let diff = (res.tx - tx).abs() + (res.ty - ty).abs() + (res.tz - tz).abs();
+        if diff < 0.1 {
+            let (ndx, ndy, ndz) = (tx - light.x, ty - light.y, tz - light.z);
+            let magnitude_sqr = ndx * ndx + ndy * ndy + ndz * ndz;
+            total_r += light.r / magnitude_sqr;
+            total_g += light.g / magnitude_sqr;
+            total_b += light.b / magnitude_sqr;
+        }
     }
     olc::Pixel {
         r: ((255.0 as f32).min(col.r as f32 * total_r)) as u8,
@@ -414,7 +426,7 @@ impl ExampleProgram {
                     3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
                     _ => &olc::BLANK,
                 };
-                draw_color = light_effect(draw_color, &self.lights, res.tx, res.ty, res.tz);
+                draw_color = light_effect(&self.world, draw_color, &self.lights, res.tx, res.ty, res.tz);
                 olc::draw(j as i32, i as i32, draw_color);
                 r_vec = add(r_vec, c_diff); // todo: maybe change to mutating?
             }
@@ -511,6 +523,7 @@ fn main() {
         },
         assets: Assets::new(),
         lights: vec!(),
+        elapsed: 0.0,
     };
     olc::start("Hello, world!", &mut example, resx as i32, resy as i32, 1, 1).unwrap();
 }
