@@ -1,7 +1,23 @@
 extern crate olc_pixel_game_engine;
 
+use std::{
+    sync::{
+        Arc,
+        Mutex,
+        mpsc,
+    },
+    thread,
+};
 use crate::olc_pixel_game_engine as olc;
 use rayon::prelude::*;
+use mouse_rs::{
+    Mouse,
+    types::{
+        Point,
+    },
+};
+
+const THREAD_COUNT: usize = 16;
 
 struct RaycastWorld {
     map: Vec<u8>,
@@ -66,7 +82,7 @@ fn raycast(world: &RaycastWorld, (x, y, z): (f32, f32, f32), (dx, dy, dz): (f32,
     let (xi, mut tnx, xs, xi_i): (f32, f32, f32, isize) = initial_raycast_axis(dx, xf, idx);
     let (yi, mut tny, ys, yi_i): (f32, f32, f32, isize) = initial_raycast_axis(dy, yf, idy);
     let (zi, mut tnz, zs, zi_i): (f32, f32, f32, isize) = initial_raycast_axis(dz, zf, idz);
-    let max_passes: usize = 16;
+    let max_passes: usize = 64;
     let mut last_dir: HitDirection = HitDirection::X;
     let (mut xp, mut yp, mut zp): (f32, f32, f32) = (0.0, 0.0, 0.0);
     let mut world_index: isize = cx + cy * world.size.0 as isize + cz * (world.size.0 * world.size.1) as isize;
@@ -281,6 +297,7 @@ struct ExampleProgram {
     assets: Assets,
     lights: Vec<Light>,
     elapsed: f64,
+    mouse: Mouse,
 }
 impl Assets {
     fn new() -> Assets {
@@ -291,18 +308,25 @@ impl Assets {
         }
     }
 }
+const MOUSE_RESET_X: usize = 500;
+const MOUSE_RESET_Y: usize = 500;
+
+const MOUSE_SENSITIVITY: f32 = 0.05;
 const TURN_SPEED: f32 = 2.0;
 const MOVE_SPEED: f32 = 3.0;
 impl olc::Application for ExampleProgram {
     fn on_user_create(&mut self) -> Result<(), olc::Error> {
-        self.world.map[4 + self.world.size.0 * 4 + self.world.size.0 * self.world.size.1 * 2] = 1;
+        self.world.map[3 + self.world.size.0 * 4 + self.world.size.0 * self.world.size.1 * 2] = 1;
         Ok(())
     }
     fn on_user_update(&mut self, elapsed_time: f32) -> Result<(), olc::Error> {
         // olc::clear(olc::BLACK);
         self.draw_view();
         // self.draw_top_down();
-        olc::draw_string(4, 4, &format!("xya: {}, {}, {}", self.camera.x, self.camera.y, self.camera.direction)[..], olc::BLUE);
+        olc::draw_string(4, 4, &format!("xya: {}, {}, {}", self.camera.x, self.camera.y, self.camera.direction)[..], olc::BLUE).unwrap();
+        if olc::get_key(olc::Key::ESCAPE).held {
+            panic!("closed the game");
+        }
         if olc::get_key(olc::Key::LEFT).held {
             self.camera.direction -= TURN_SPEED * elapsed_time;
         }
@@ -315,6 +339,11 @@ impl olc::Application for ExampleProgram {
         if olc::get_key(olc::Key::DOWN).held {
             self.camera.pitch -= TURN_SPEED * elapsed_time;
         }
+        let Point { x, y } = self.mouse.get_position().expect("failed to get mouse position");
+        let (diff_x, diff_y) = ((x as isize) - (MOUSE_RESET_X as isize), (y as isize) - (MOUSE_RESET_Y as isize));
+        self.camera.direction += TURN_SPEED * elapsed_time * (diff_x as f32) * MOUSE_SENSITIVITY;
+        self.camera.pitch -= TURN_SPEED * elapsed_time * (diff_y as f32) * MOUSE_SENSITIVITY;
+        self.mouse.move_to(MOUSE_RESET_X as i32, MOUSE_RESET_Y as i32).expect("failed to move mouse");
         if olc::get_key(olc::Key::W).held {
             self.camera.x += self.camera.direction.cos() * MOVE_SPEED * elapsed_time;
             self.camera.y += self.camera.direction.sin() * MOVE_SPEED * elapsed_time;
@@ -337,6 +366,17 @@ impl olc::Application for ExampleProgram {
         if olc::get_key(olc::Key::SPACE).held {
             self.camera.z -= MOVE_SPEED * elapsed_time;
         }
+        if olc::get_mouse(0).pressed {
+            let d = (self.camera.direction.cos() * self.camera.pitch.cos(), self.camera.direction.sin() * self.camera.pitch.cos(), -self.camera.pitch.sin());
+            let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), d);
+            let hit_pos = (
+                (res.tx - d.0 * 0.001).floor() as usize,
+                (res.ty - d.1 * 0.001).floor() as usize,
+                (res.tz - d.2 * 0.001).floor() as usize,
+            );
+            let hit_ind = hit_pos.0 + hit_pos.1 * self.world.size.0 + hit_pos.2 * self.world.size.0 * self.world.size.1;
+            self.world.map[hit_ind] = 1;
+        }
         self.lights = vec!(Light {
                 x: 2.0, y: 2.0, z: 2.5 + ((self.elapsed / 1.0).cos() * 1.5) as f32,
                 r: 3.0, g: 3.0, b: 3.0,
@@ -344,6 +384,10 @@ impl olc::Application for ExampleProgram {
             Light {
                 x: 2.0, y: 6.0, z: 2.0,
                 r: 2.0, g: 0.1, b: 0.1,
+            },
+            Light {
+                x: self.camera.x, y: self.camera.y, z: self.camera.z,
+                r: 1.0, g: 1.0, b: 1.0,
             }
         );
         self.elapsed += elapsed_time as f64;
@@ -407,26 +451,30 @@ impl ExampleProgram {
         );
         let l_diff = div(sub(bl_vec, tl_vec), self.camera.res_y as f32);
         let c_diff = div(sub(tr_vec, tl_vec), self.camera.res_x as f32);
-        let nums_to_iter: Vec<usize> = (0..4).collect();
+        let nums_to_iter: Vec<usize> = (0..THREAD_COUNT).collect();
         let width_per_column: usize = self.camera.res_x / nums_to_iter.len();
+        let camera = &self.camera;
+        let world = &self.world;
+        let lights = &self.lights;
+        let assets = &self.assets;
         nums_to_iter.par_iter().for_each(|&i| {
             let local_tl_vec = add(tl_vec, mult(c_diff, (i * width_per_column) as f32));
-            self.draw_view_part(local_tl_vec, l_diff, c_diff, i * width_per_column, 0, i * width_per_column + width_per_column, self.camera.res_y);
+            ExampleProgram::draw_view_part(world, camera, assets, lights, local_tl_vec, l_diff, c_diff, i * width_per_column, 0, i * width_per_column + width_per_column, camera.res_y);
         });
     }
-    fn draw_view_part(&self, tl_vec: (f32, f32, f32), l_diff: (f32, f32, f32), c_diff: (f32, f32, f32), x_begin: usize, y_begin: usize, x_end: usize, y_end: usize) {
+    fn draw_view_part(world: &RaycastWorld, camera: &Camera, assets: &Assets, lights: &Vec<Light>, tl_vec: (f32, f32, f32), l_diff: (f32, f32, f32), c_diff: (f32, f32, f32), x_begin: usize, y_begin: usize, x_end: usize, y_end: usize) {
         let mut l_vec = (tl_vec.0, tl_vec.1, tl_vec.2);
         for i in y_begin..y_end {
             let mut r_vec = (l_vec.0, l_vec.1, l_vec.2);
             for j in x_begin..x_end {
-                let res = raycast(&self.world, (self.camera.x, self.camera.y, self.camera.z), r_vec);
+                let res = raycast(world, (camera.x, camera.y, camera.z), r_vec);
                 let mut draw_color = *match &res.value {
-                    1 => self.assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
-                    2 => self.assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
-                    3 => self.assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    1 => assets.wall_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    2 => assets.ceil_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
+                    3 => assets.floor_sprite.get_pixel_from_intercept(res.x_int, res.y_int),
                     _ => &olc::BLANK,
                 };
-                draw_color = light_effect(&self.world, draw_color, &self.lights, res.tx, res.ty, res.tz);
+                draw_color = light_effect(world, draw_color, lights, res.tx, res.ty, res.tz);
                 olc::draw(j as i32, i as i32, draw_color);
                 r_vec = add(r_vec, c_diff); // todo: maybe change to mutating?
             }
@@ -486,7 +534,7 @@ impl ExampleProgram {
 }
 
 fn main() {
-    let (width, height, length) = (8, 8, 5);
+    let (width, height, length) = (16, 16, 16);
     let (resx, resy) = (1024, 768);
     let mut example = ExampleProgram {
         world: RaycastWorld {
@@ -524,6 +572,7 @@ fn main() {
         assets: Assets::new(),
         lights: vec!(),
         elapsed: 0.0,
+        mouse: Mouse::new(),
     };
     olc::start("Hello, world!", &mut example, resx as i32, resy as i32, 1, 1).unwrap();
 }
