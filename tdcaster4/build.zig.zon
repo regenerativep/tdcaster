@@ -1,0 +1,14 @@
+.{
+    .name = "tdcaster4",
+    .version = "0.1.0",
+    .dependencies = .{
+        .pge = .{
+            .url = "https://github.com/regenerativep/zigpge/archive/c1d829d38e57277b81cce12e2c0035f623b6968c.tar.gz",
+            .hash = "1220d614611be4222f356311fd6bbd298cd167a1addf1f5893a5a31196e568913f13",
+        },
+        .zigimg = .{
+            .url = "https://github.com/zigimg/zigimg/archive/5d21a69654ca6d28dbc86d1e3a10d65ffc5ea75c.tar.gz",
+            .hash = "122064d0e56e030694d35019802f665cd86e5bd45a3cc93eb8c78d9814120059f09e",
+        },
+    },
+}
